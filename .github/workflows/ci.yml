@@ -1,0 +1,23 @@
+name: BB Wizard CI/CD
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Fish + Go
+      run: |
+        sudo apt update
+        sudo apt install -y fish wget
+        wget https://go.dev/dl/go1.23.6.linux-amd64.tar.gz
+        sudo tar -C /usr/local -xzf go1.23.6.linux-amd64.tar.gz
+        sudo ln -s /usr/local/go/bin/go /usr/bin/go
+    
+    - name: Install Tools
+      run: |
+        go install github.com/projectdiscovery/{subfinder/cmd/subfinder,httpx/cmd/httpx,nuclei/cmd/nuclei}@latest
+        fish_add_path (go env GOPATH)/bin
+    
+    - name: Test Wizard
+      run: fish bb-wizard.fish "https://bugcrowd.com/engagements/aruba-product-public"
