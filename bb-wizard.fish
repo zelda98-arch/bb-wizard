@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
 
 function log -a level message
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [$level] $message" | tee -a $project_dir/logs/wizard.log errors.log
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [$level] $message" | tee -a $log_file $err_file
 end
 
 function check_tool -a tool
@@ -101,24 +101,140 @@ function scan_loop
     end
 end
 
+function quick_recon -a slug target live_file recon_dir
+    # For now, Aruba-only: derive scope using existing helper + hardcoded fallback.
+    set scope_file $recon_dir/scope.txt
+    log INFO "Quick recon for $slug -> scope + subfinder + httpx"
+
+    # Use Bugcrowd scope extraction if target is a URL, else Aruba hardcoded.
+    if string match -rq '^https?://' -- $target
+        extract_bugcrowd_scope $target
+        # extract_bugcrowd_scope writes to $scope_file in old code,
+        # so ensure that variable is set for compatibility.
+    else
+        # bare slug: just seed Aruba scope directly
+        printf '%s\n' \
+            "*.arubanetworks.com" \
+            "*.arubainstanton.com" \
+            "*.arubacentral.com" \
+            "*.arubaclearpass.com" \
+            "*.arubaairwave.com" > $scope_file
+    end
+
+    if not test -f $scope_file
+        log ERROR "Scope file not created at $scope_file"
+        return 1
+    end
+
+    set scope_count (wc -l < $scope_file 2>/dev/null | tr -d ' ')
+    log INFO "Scope entries: $scope_count"
+
+    # Subfinder
+    if not check_tool subfinder
+        log ERROR "subfinder missing; cannot build live.txt"
+        return 1
+    end
+
+    set subs_file $recon_dir/subs-quick.txt
+    subfinder -dL $scope_file -silent -o $subs_file 2>>$err_file
+    set subs_count (wc -l < $subs_file 2>/dev/null | tr -d ' ')
+    log INFO "Subdomains found: $subs_count"
+
+    # httpx to discover live hosts
+    if not check_tool httpx
+        log ERROR "httpx missing; cannot build live.txt"
+        return 1
+    end
+
+    cat $subs_file | httpx -silent -o $live_file 2>>$err_file
+    set live_count (wc -l < $live_file 2>/dev/null | tr -d ' ')
+    log INFO "Live hosts written to $live_file: $live_count"
+end
+
 # MAIN EXECUTION
-if test (count $argv) -ne 1
-    echo "Usage: bb-wizard-v2.fish <program_url>"
+
+# Args: <url-or-slug> [--surgical]
+if test (count $argv) -lt 1
+    echo "Usage: bb-wizard.fish <program_url|slug> [--surgical]" >&2
     exit 1
 end
 
-set program_url $argv[1]
-set timestamp (date +%Y%m%d-%H%M%S)
-set project_dir ~/bb/$timestamp
-set scope_file $project_dir/scope.txt
-set leads_file $project_dir/recon/leads.txt
+set mode "full"
+if contains -- "--surgical" $argv
+    set mode "surgical"
+end
 
-mkdir -p $project_dir/{recon,scans,logs}
-touch $project_dir/logs/{wizard.log,errors.log}
+set target $argv[1]
 
-log INFO "Aruba Wizard started: $program_url"
-extract_bugcrowd_scope $program_url
-scan_loop
+# derive slug from URL or accept as-is
+if string match -rq '^https?://' -- $target
+    set clean (string replace -r '^https?://(www\.)?' '' -- $target)
+    set clean (string replace -r '/+$' '' -- $clean)
+    set slug (string replace -r '^.*/' '' -- $clean)
+else
+    set slug $target
+end
 
-log INFO "✅ COMPLETE - check $project_dir/scans/"
-echo "🎯 Results: $project_dir" | lolcat 2>/dev/null; or echo "Results: $project_dir"
+# project layout under repo root
+set repo_dir (pwd)
+set project_dir $repo_dir/projects/$slug
+set recon_dir $project_dir/recon
+set scans_dir $project_dir/scans
+set logs_dir $repo_dir/logs
+
+mkdir -p $recon_dir $scans_dir $logs_dir
+set live_file $recon_dir/live.txt
+set log_file $logs_dir/wizard.log
+set err_file $logs_dir/errors.log
+set scope_file $recon_dir/scope.txt
+
+if test "$mode" = "surgical"
+    if not test -f $live_file
+        echo "[-] live.txt not found for $slug at $live_file. Run full recon first." >&2
+        exit 1
+    end
+
+    set live_count (wc -l < $live_file 2>/dev/null | tr -d ' ')
+    if test "$live_count" = "0"
+        echo "[-] live.txt is empty for $slug. Run full recon first." >&2
+        exit 1
+    end
+
+    set ts (date +%Y%m%d-%H%M%S)
+    set out_file $scans_dir/nuclei-$ts.txt
+
+    trap 'pkill -f "nuclei -l $live_file"; exit 1' INT TERM
+
+    log INFO "Starting surgical nuclei scan for $slug ($live_count live hosts)"
+
+    nuclei -l $live_file \
+        -severity critical,high,medium \
+        -c 5 -rl 25 -mhe 3 -timeout 8 -retries 1 \
+        -o $out_file 2>>$err_file
+
+    set vuln_count (wc -l < $out_file 2>/dev/null | tr -d ' ')
+
+    echo "⚔️ RESUME: $project_dir ($live_count live hosts)"
+    echo "💥 P4+ nuclei: 3-5min scan → $vuln_count candidates"
+    echo "💰 scans/"(basename $out_file)" (report these NOW)"
+    exit 0
+end
+
+# minimal recon for now: build live.txt then instruct user to rerun --surgical
+if test "$mode" != "surgical"
+    log INFO "Minimal recon mode: building live.txt for $slug"
+
+    # ensure recon directories and logging are set up (already done above)
+    quick_recon $slug $target $live_file $recon_dir
+
+    set live_count (wc -l < $live_file 2>/dev/null | tr -d ' ')
+    if test "$live_count" = "0"
+        echo "[-] Recon completed but live.txt is empty for $slug at $live_file." >&2
+        echo "    Try adjusting scope or running tools manually." >&2
+        exit 1
+    end
+
+    echo "[+] Recon complete: $live_count live hosts into $live_file"
+    echo "[+] Now run: ./bb-wizard.fish $slug --surgical"
+    exit 0
+end

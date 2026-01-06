@@ -1,0 +1,9 @@
+2026-01-06 13:15:09 [INFO] Minimal recon mode: building live.txt for aruba
+2026-01-06 13:15:09 [INFO] Quick recon for aruba -> scope + subfinder + httpx
+2026-01-06 13:15:09 [INFO] Extracting Bugcrowd scope from https://bugcrowd.com/aruba
+2026-01-06 13:15:10 [WARN] Using Aruba hardcoded scope
+2026-01-06 13:15:10 [INFO] Scope ready: 5 targets
+2026-01-06 13:15:10 [INFO] Scope entries: 5
+2026-01-06 13:15:54 [INFO] Subdomains found: 1964
+2026-01-06 13:21:20 [INFO] Live hosts written to /home/joandarc/bb-wizard/projects/aruba/recon/live.txt: 323
+2026-01-06 13:21:20 [INFO] Starting surgical nuclei scan for aruba (323 live hosts)

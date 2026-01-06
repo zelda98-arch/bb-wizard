@@ -1,0 +1,5 @@
+*.arubanetworks.com
+*.arubainstanton.com
+*.arubacentral.com
+*.arubaclearpass.com
+*.arubaairwave.com

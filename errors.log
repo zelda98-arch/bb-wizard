@@ -1,0 +1,17 @@
+
+                     __     _
+   ____  __  _______/ /__  (_)
+  / __ \/ / / / ___/ / _ \/ /
+ / / / / /_/ / /__/ /  __/ /
+/_/ /_/\__,_/\___/_/\___/_/   v3.6.1
+
+		projectdiscovery.io
+
+[[34mINF[0m] Adjusting max-host-error to the concurrency value: 5
+[[31mWRN[0m] Found 1 templates with runtime error (use -validate flag for further examination)
+[[34mINF[0m] Current nuclei version: v3.6.1 ([91moutdated[0m)
+[[34mINF[0m] Current nuclei-templates version: v10.3.6 ([92mlatest[0m)
+[[34mINF[0m] New templates added in latest release: 176
+[[34mINF[0m] Templates loaded for current scan: 5586
+[[34mINF[0m] Executing 5585 signed templates from projectdiscovery/nuclei-templates
+[[34mINF[0m] Scan completed in 133.886383ms. No results found.
